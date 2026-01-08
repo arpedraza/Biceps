@@ -1,0 +1,286 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name": {
+            "defaultValue": "apw-ep-ipos-doc-prod-westeu-01",
+            "type": "String"
+        },
+        "virtualNetworks_vnet_ep_shared_westeu_02_externalid": {
+            "defaultValue": "/subscriptions/c71cfef2-700e-47e5-b810-e34898fd2249/resourceGroups/rg-ep-network-prod-01/providers/Microsoft.Network/virtualNetworks/vnet-ep-shared-westeu-02",
+            "type": "String"
+        },
+        "publicIPAddresses_pip_ep_ipos_doc_prod_westeu_01_externalid": {
+            "defaultValue": "/subscriptions/c71cfef2-700e-47e5-b810-e34898fd2249/resourceGroups/rg-ep-ipos-prod-01/providers/Microsoft.Network/publicIPAddresses/pip-ep-ipos-doc-prod-westeu-01",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Network/applicationGateways",
+            "apiVersion": "2024-07-01",
+            "name": "[parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')]",
+            "location": "westeurope",
+            "properties": {
+                "sku": {
+                    "name": "Standard_v2",
+                    "tier": "Standard_v2",
+                    "family": "Generation_2",
+                    "capacity": 1
+                },
+                "gatewayIPConfigurations": [
+                    {
+                        "name": "appGatewayIpConfig",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/gatewayIPConfigurations/appGatewayIpConfig')]",
+                        "properties": {
+                            "subnet": {
+                                "id": "[concat(parameters('virtualNetworks_vnet_ep_shared_westeu_02_externalid'), '/subnets/snet-ep-appgateway-v2-prod-westeu01')]"
+                            }
+                        }
+                    }
+                ],
+                "sslCertificates": [
+                    {
+                        "name": "wildcard",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/sslCertificates/wildcard')]",
+                        "properties": {}
+                    },
+                    {
+                        "name": "EuroportsWildcard20242025",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/sslCertificates/EuroportsWildcard20242025')]",
+                        "properties": {}
+                    }
+                ],
+                "trustedRootCertificates": [],
+                "trustedClientCertificates": [],
+                "sslProfiles": [],
+                "frontendIPConfigurations": [
+                    {
+                        "name": "appGwPublicFrontendIp",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendIPConfigurations/appGwPublicFrontendIp')]",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[parameters('publicIPAddresses_pip_ep_ipos_doc_prod_westeu_01_externalid')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "appGwPrivateFrontendIp",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendIPConfigurations/appGwPrivateFrontendIp')]",
+                        "properties": {
+                            "privateIPAddress": "10.11.166.132",
+                            "privateIPAllocationMethod": "Static",
+                            "subnet": {
+                                "id": "[concat(parameters('virtualNetworks_vnet_ep_shared_westeu_02_externalid'), '/subnets/snet-ep-appgateway-v2-prod-westeu01')]"
+                            }
+                        }
+                    }
+                ],
+                "frontendPorts": [
+                    {
+                        "name": "port_80",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendPorts/port_80')]",
+                        "properties": {
+                            "port": 80
+                        }
+                    },
+                    {
+                        "name": "port_443",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendPorts/port_443')]",
+                        "properties": {
+                            "port": 443
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "Backend",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendAddressPools/Backend')]",
+                        "properties": {
+                            "backendAddresses": [
+                                {
+                                    "fqdn": "app-ep-ipos-doc-prod-westeu-04.azurewebsites.net"
+                                },
+                                {
+                                    "fqdn": "app-ep-ipos-doc-prod-westeu-02.azurewebsites.net"
+                                },
+                                {
+                                    "fqdn": "app-ep-ipos-doc-prod-westeu-03.azurewebsites.net"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "loadDistributionPolicies": [],
+                "backendHttpSettingsCollection": [
+                    {
+                        "name": "HTTP-Settings",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendHttpSettingsCollection/HTTP-Settings')]",
+                        "properties": {
+                            "port": 80,
+                            "protocol": "Http",
+                            "cookieBasedAffinity": "Enabled",
+                            "pickHostNameFromBackendAddress": true,
+                            "affinityCookieName": "ApplicationGatewayAffinity",
+                            "requestTimeout": 600,
+                            "probe": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/probes/HTTP-Settingsc7a6eb02-d809-4de7-8ff3-366990b421ed')]"
+                            }
+                        }
+                    }
+                ],
+                "backendSettingsCollection": [],
+                "httpListeners": [
+                    {
+                        "name": "ListernetHTTP",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/httpListeners/ListernetHTTP')]",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendIPConfigurations/appGwPrivateFrontendIp')]"
+                            },
+                            "frontendPort": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendPorts/port_80')]"
+                            },
+                            "protocol": "Http",
+                            "hostNames": [],
+                            "requireServerNameIndication": false
+                        }
+                    },
+                    {
+                        "name": "ListenerHTTPS",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/httpListeners/ListenerHTTPS')]",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendIPConfigurations/appGwPrivateFrontendIp')]"
+                            },
+                            "frontendPort": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/frontendPorts/port_443')]"
+                            },
+                            "protocol": "Https",
+                            "sslCertificate": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/sslCertificates/EuroportsWildcard20242025')]"
+                            },
+                            "hostNames": [],
+                            "requireServerNameIndication": false,
+                            "customErrorConfigurations": []
+                        }
+                    }
+                ],
+                "listeners": [],
+                "urlPathMaps": [],
+                "requestRoutingRules": [
+                    {
+                        "name": "RoutingHTTP",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/requestRoutingRules/RoutingHTTP')]",
+                        "properties": {
+                            "ruleType": "Basic",
+                            "priority": 10010,
+                            "httpListener": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/httpListeners/ListernetHTTP')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendAddressPools/Backend')]"
+                            },
+                            "backendHttpSettings": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendHttpSettingsCollection/HTTP-Settings')]"
+                            },
+                            "rewriteRuleSet": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/rewriteRuleSets/RedirectRewrite')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "RoutingHTTPS",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/requestRoutingRules/RoutingHTTPS')]",
+                        "properties": {
+                            "ruleType": "Basic",
+                            "priority": 10020,
+                            "httpListener": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/httpListeners/ListenerHTTPS')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendAddressPools/Backend')]"
+                            },
+                            "backendHttpSettings": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/backendHttpSettingsCollection/HTTP-Settings')]"
+                            },
+                            "rewriteRuleSet": {
+                                "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/rewriteRuleSets/RedirectRewrite')]"
+                            }
+                        }
+                    }
+                ],
+                "routingRules": [],
+                "probes": [
+                    {
+                        "name": "HTTP-Settingsc7a6eb02-d809-4de7-8ff3-366990b421ed",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/probes/HTTP-Settingsc7a6eb02-d809-4de7-8ff3-366990b421ed')]",
+                        "properties": {
+                            "protocol": "Http",
+                            "path": "/ipos/",
+                            "interval": 30,
+                            "timeout": 10,
+                            "unhealthyThreshold": 3,
+                            "pickHostNameFromBackendHttpSettings": true,
+                            "minServers": 0,
+                            "match": {
+                                "statusCodes": [
+                                    "200-399"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "rewriteRuleSets": [
+                    {
+                        "name": "RedirectRewrite",
+                        "id": "[concat(resourceId('Microsoft.Network/applicationGateways', parameters('applicationGateways_apw_ep_ipos_doc_prod_westeu_01_name')), '/rewriteRuleSets/RedirectRewrite')]",
+                        "properties": {
+                            "rewriteRules": [
+                                {
+                                    "ruleSequence": 100,
+                                    "conditions": [
+                                        {
+                                            "variable": "http_resp_Location",
+                                            "pattern": "(https?):\\/\\/.*azurewebsites\\.net(.*)$",
+                                            "ignoreCase": true,
+                                            "negate": false
+                                        }
+                                    ],
+                                    "name": "RedirectRewrite",
+                                    "actionSet": {
+                                        "requestHeaderConfigurations": [],
+                                        "responseHeaderConfigurations": [
+                                            {
+                                                "headerName": "Location",
+                                                "headerValue": "{http_resp_Location_1}://tos.euroports.com{http_resp_Location_2}"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "redirectConfigurations": [],
+                "privateLinkConfigurations": [],
+                "sslPolicy": {
+                    "policyType": "Custom",
+                    "minProtocolVersion": "TLSv1_2",
+                    "cipherSuites": [
+                        "TLS_RSA_WITH_AES_256_CBC_SHA256",
+                        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
+                        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+                        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+                        "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
+                        "TLS_RSA_WITH_AES_128_GCM_SHA256",
+                        "TLS_RSA_WITH_AES_128_CBC_SHA256"
+                    ]
+                },
+                "enableHttp2": false
+            }
+        }
+    ]
+}
