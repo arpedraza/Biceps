@@ -1,0 +1,91 @@
+# ============================================================================
+# EXAMPLE: Single Environment Deployment Pipeline
+# ============================================================================
+# This pipeline deploys to a single environment (e.g., only Dev)
+# Useful for development/testing cycles
+# ============================================================================
+
+name: Dev-Only-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - develop
+      - feature/*
+  paths:
+    include:
+      - applications/**
+      - modules/**
+
+variables:
+  - group: 'bicep-dev'
+  - name: applicationName
+    value: 'step'
+  - name: environment
+    value: 'dev'
+  - name: azureLocation
+    value: 'eastus'
+  - name: vmImageName
+    value: 'ubuntu-latest'
+
+stages:
+  - stage: Validate_And_Deploy
+    displayName: 'Validate and Deploy to Dev'
+    
+    jobs:
+      # Lint
+      - job: Lint
+        displayName: 'Lint Bicep'
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - template: ../templates/lint-template.yml
+            parameters:
+              applicationPath: 'applications/$(applicationName)'
+              modulesPath: 'modules'
+              azureServiceConnection: $(azureServiceConnection)
+      
+      # Validate
+      - job: Validate
+        displayName: 'Validate Template'
+        dependsOn: Lint
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - template: ../templates/validate-template.yml
+            parameters:
+              applicationName: $(applicationName)
+              environment: $(environment)
+              azureLocation: $(azureLocation)
+              azureServiceConnection: $(azureServiceConnection)
+              deploymentScope: 'subscription'
+      
+      # Deploy
+      - deployment: Deploy
+        displayName: 'Deploy to Dev'
+        dependsOn: Validate
+        pool:
+          vmImage: $(vmImageName)
+        environment: 'Development'
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - template: ../templates/deploy-template.yml
+                  parameters:
+                    applicationName: $(applicationName)
+                    environment: $(environment)
+                    azureLocation: $(azureLocation)
+                    azureServiceConnection: $(azureServiceConnection)
+                    deploymentScope: 'subscription'
+                    runWhatIf: true
+                    verifyDeployment: true

@@ -1,0 +1,273 @@
+# ============================================================================
+# Pipeline Template: Environment-Specific Deployment
+# ============================================================================
+# This template orchestrates deployment to a specific environment with
+# all necessary validation and verification steps
+# ============================================================================
+
+parameters:
+  - name: applicationName
+    type: string
+    displayName: 'Application Name'
+  
+  - name: environment
+    type: string
+    displayName: 'Environment'
+    values:
+      - dev
+      - test
+      - uat
+      - prod
+  
+  - name: azureLocation
+    type: string
+    displayName: 'Azure Location'
+    default: 'eastus'
+  
+  - name: azureServiceConnection
+    type: string
+    displayName: 'Azure Service Connection'
+  
+  - name: variableGroupName
+    type: string
+    displayName: 'Variable Group Name'
+  
+  - name: requiresApproval
+    type: boolean
+    displayName: 'Requires Manual Approval'
+    default: false
+  
+  - name: runValidation
+    type: boolean
+    displayName: 'Run Validation'
+    default: true
+  
+  - name: runWhatIf
+    type: boolean
+    displayName: 'Run What-If Analysis'
+    default: true
+  
+  - name: verifyAfterDeployment
+    type: boolean
+    displayName: 'Verify After Deployment'
+    default: true
+
+stages:
+  - stage: Deploy_${{ parameters.environment }}
+    displayName: 'Deploy to ${{ parameters.environment }}'
+    
+    variables:
+      - group: ${{ parameters.variableGroupName }}
+      - name: environment
+        value: ${{ parameters.environment }}
+    
+    jobs:
+      # Pre-deployment validation
+      - job: Pre_Deployment_Validation
+        displayName: 'Pre-Deployment Validation'
+        condition: eq('${{ parameters.runValidation }}', 'true')
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - checkout: self
+          
+          - template: validate-template.yml
+            parameters:
+              applicationName: ${{ parameters.applicationName }}
+              environment: ${{ parameters.environment }}
+              azureLocation: ${{ parameters.azureLocation }}
+              azureServiceConnection: ${{ parameters.azureServiceConnection }}
+              deploymentScope: 'subscription'
+      
+      # What-If analysis
+      - job: What_If_Analysis
+        displayName: 'What-If Analysis'
+        condition: eq('${{ parameters.runWhatIf }}', 'true')
+        dependsOn: Pre_Deployment_Validation
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - checkout: self
+          
+          - template: whatif-template.yml
+            parameters:
+              applicationName: ${{ parameters.applicationName }}
+              environment: ${{ parameters.environment }}
+              azureLocation: ${{ parameters.azureLocation }}
+              azureServiceConnection: ${{ parameters.azureServiceConnection }}
+              deploymentScope: 'subscription'
+      
+      # Manual approval for sensitive environments
+      - job: Manual_Approval
+        displayName: 'Manual Approval Gate'
+        condition: eq('${{ parameters.requiresApproval }}', 'true')
+        dependsOn: What_If_Analysis
+        pool: server
+        
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve ${{ parameters.environment }} Deployment'
+            inputs:
+              notifyUsers: ''
+              instructions: |
+                Please review the validation and what-if results before approving.
+                
+                Environment: ${{ parameters.environment }}
+                Application: ${{ parameters.applicationName }}
+                Location: ${{ parameters.azureLocation }}
+                
+                Check:
+                ☐ Validation passed
+                ☐ What-if analysis reviewed
+                ☐ Change approved
+              onTimeout: 'reject'
+      
+      # Actual deployment
+      - deployment: Deploy_Infrastructure
+        displayName: 'Deploy Infrastructure'
+        dependsOn:
+          - Pre_Deployment_Validation
+          - What_If_Analysis
+          - Manual_Approval
+        condition: |
+          and(
+            or(
+              eq(dependencies.Pre_Deployment_Validation.result, 'Succeeded'),
+              eq('${{ parameters.runValidation }}', 'false')
+            ),
+            or(
+              eq(dependencies.What_If_Analysis.result, 'Succeeded'),
+              eq('${{ parameters.runWhatIf }}', 'false')
+            ),
+            or(
+              eq(dependencies.Manual_Approval.result, 'Succeeded'),
+              eq('${{ parameters.requiresApproval }}', 'false')
+            )
+          )
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: ${{ parameters.environment }}
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - template: deploy-template.yml
+                  parameters:
+                    applicationName: ${{ parameters.applicationName }}
+                    environment: ${{ parameters.environment }}
+                    azureLocation: ${{ parameters.azureLocation }}
+                    azureServiceConnection: ${{ parameters.azureServiceConnection }}
+                    deploymentScope: 'subscription'
+                    runWhatIf: false  # Already done in separate job
+                    verifyDeployment: ${{ parameters.verifyAfterDeployment }}
+      
+      # Post-deployment verification
+      - job: Post_Deployment_Verification
+        displayName: 'Post-Deployment Verification'
+        dependsOn: Deploy_Infrastructure
+        condition: and(succeeded(), eq('${{ parameters.verifyAfterDeployment }}', 'true'))
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Comprehensive Verification'
+            inputs:
+              azureSubscription: ${{ parameters.azureServiceConnection }}
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "==============================================="
+                echo "Post-Deployment Verification"
+                echo "==============================================="
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Application: ${{ parameters.applicationName }}"
+                echo ""
+                
+                # Construct resource group name
+                RG_NAME="rg-${{ parameters.applicationName }}-${{ parameters.environment }}-$(echo ${{ parameters.azureLocation }} | cut -c1-3)"
+                
+                # Verify resource group
+                echo "1. Checking Resource Group: $RG_NAME"
+                if az group show --name "$RG_NAME" &> /dev/null; then
+                  echo "   ✓ Resource group exists"
+                else
+                  echo "   ✗ Resource group not found"
+                  exit 1
+                fi
+                
+                # Verify resources
+                echo ""
+                echo "2. Verifying Deployed Resources"
+                RESOURCE_COUNT=$(az resource list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                echo "   Total Resources: $RESOURCE_COUNT"
+                
+                if [ "$RESOURCE_COUNT" -eq 0 ]; then
+                  echo "   ⚠️ Warning: No resources found in resource group"
+                fi
+                
+                # Verify VMs
+                echo ""
+                echo "3. Verifying Virtual Machines"
+                VM_COUNT=$(az vm list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                echo "   VM Count: $VM_COUNT"
+                
+                if [ "$VM_COUNT" -gt 0 ]; then
+                  # Check VM provisioning state
+                  FAILED_VMS=$(az vm list \
+                    --resource-group "$RG_NAME" \
+                    --query "[?provisioningState!='Succeeded'].{Name:name, State:provisioningState}" \
+                    -o json)
+                  
+                  if [ "$FAILED_VMS" != "[]" ]; then
+                    echo "   ✗ Some VMs failed to provision:"
+                    echo "$FAILED_VMS"
+                    exit 1
+                  else
+                    echo "   ✓ All VMs provisioned successfully"
+                  fi
+                  
+                  # Check VM power state
+                  echo ""
+                  echo "4. Checking VM Power States"
+                  az vm list \
+                    --resource-group "$RG_NAME" \
+                    --show-details \
+                    --query "[].{Name:name, PowerState:powerState}" \
+                    -o table
+                fi
+                
+                # Verify network resources
+                echo ""
+                echo "5. Verifying Network Resources"
+                VNET_COUNT=$(az network vnet list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                echo "   Virtual Networks: $VNET_COUNT"
+                
+                NSG_COUNT=$(az network nsg list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                echo "   Network Security Groups: $NSG_COUNT"
+                
+                # Verify storage
+                echo ""
+                echo "6. Verifying Storage Accounts"
+                STORAGE_COUNT=$(az storage account list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                echo "   Storage Accounts: $STORAGE_COUNT"
+                
+                # Summary
+                echo ""
+                echo "==============================================="
+                echo "✓✓✓ Verification Completed Successfully ✓✓✓"
+                echo "==============================================="
+                echo "Resource Group: $RG_NAME"
+                echo "Total Resources: $RESOURCE_COUNT"
+                echo "Virtual Machines: $VM_COUNT"
+                echo "Virtual Networks: $VNET_COUNT"
+                echo "Network Security Groups: $NSG_COUNT"
+                echo "Storage Accounts: $STORAGE_COUNT"
+                echo "==============================================="

@@ -1,0 +1,275 @@
+# ============================================================================
+# Azure DevOps Pipeline - Multi-Environment Deployment
+# ============================================================================
+# This pipeline deploys infrastructure to multiple environments
+# with manual approvals for UAT and Production
+# ============================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - applications/step/**
+      - modules/**
+      - config/**
+
+variables:
+  azureLocation: 'eastus'
+  applicationName: 'step'
+  azureServiceConnection: 'Azure-ServiceConnection'
+
+stages:
+  # =========================================================================
+  # Stage: Validation
+  # =========================================================================
+  - stage: Validate
+    displayName: 'Validate Bicep Templates'
+    jobs:
+      - job: ValidateTemplates
+        displayName: 'Validate All Templates'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Validate Bicep Syntax'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "Validating Bicep templates..."
+                az bicep build --file applications/$(applicationName)/main.bicep
+                echo "Bicep validation successful"
+          
+          - task: AzureCLI@2
+            displayName: 'Run Validation Script'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'scriptPath'
+              scriptPath: 'scripts/validation/validate-all.sh'
+
+  # =========================================================================
+  # Stage: Development
+  # =========================================================================
+  - stage: DeployDev
+    displayName: 'Deploy to Development'
+    dependsOn: Validate
+    condition: succeeded()
+    
+    variables:
+      environment: 'dev'
+    
+    jobs:
+      - deployment: DeployInfrastructure
+        displayName: 'Deploy Infrastructure'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Development'
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - task: AzureCLI@2
+                  displayName: 'Validate Deployment'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment sub validate \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+                
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      DEPLOYMENT_NAME="$(applicationName)-$(environment)-$(Build.BuildNumber)"
+                      echo "Deployment name: $DEPLOYMENT_NAME"
+                      
+                      az deployment sub create \
+                        --name "$DEPLOYMENT_NAME" \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+                      
+                      echo "Deployment completed successfully"
+                      
+                      # Get outputs
+                      az deployment sub show \
+                        --name "$DEPLOYMENT_NAME" \
+                        --query properties.outputs
+
+  # =========================================================================
+  # Stage: Test
+  # =========================================================================
+  - stage: DeployTest
+    displayName: 'Deploy to Test'
+    dependsOn: DeployDev
+    condition: succeeded()
+    
+    variables:
+      environment: 'test'
+    
+    jobs:
+      - deployment: DeployInfrastructure
+        displayName: 'Deploy Infrastructure'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Test'
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - task: AzureCLI@2
+                  displayName: 'What-If Analysis'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment sub what-if \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+                
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      DEPLOYMENT_NAME="$(applicationName)-$(environment)-$(Build.BuildNumber)"
+                      
+                      az deployment sub create \
+                        --name "$DEPLOYMENT_NAME" \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+
+  # =========================================================================
+  # Stage: UAT
+  # =========================================================================
+  - stage: DeployUAT
+    displayName: 'Deploy to UAT'
+    dependsOn: DeployTest
+    condition: succeeded()
+    
+    variables:
+      environment: 'uat'
+    
+    jobs:
+      - deployment: DeployInfrastructure
+        displayName: 'Deploy Infrastructure'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'UAT'  # Requires manual approval
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'scriptPath'
+                    scriptPath: 'scripts/deployment/deploy.sh'
+                    arguments: '-a $(applicationName) -e $(environment) -l $(azureLocation)'
+
+  # =========================================================================
+  # Stage: Production
+  # =========================================================================
+  - stage: DeployProd
+    displayName: 'Deploy to Production'
+    dependsOn: DeployUAT
+    condition: succeeded()
+    
+    variables:
+      environment: 'prod'
+    
+    jobs:
+      - deployment: DeployInfrastructure
+        displayName: 'Deploy Infrastructure'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Production'  # Requires manual approval
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - task: AzureCLI@2
+                  displayName: 'What-If Analysis'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "Running what-if analysis for production..."
+                      az deployment sub what-if \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+                
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      DEPLOYMENT_NAME="$(applicationName)-$(environment)-$(Build.BuildNumber)"
+                      echo "Deploying to PRODUCTION: $DEPLOYMENT_NAME"
+                      
+                      az deployment sub create \
+                        --name "$DEPLOYMENT_NAME" \
+                        --location $(azureLocation) \
+                        --template-file applications/$(applicationName)/main.bicep \
+                        --parameters applications/$(applicationName)/$(environment)/$(environment).bicepparam
+                      
+                      echo "Production deployment completed"
+                
+                - task: AzureCLI@2
+                  displayName: 'Verify Deployment'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "Verifying production deployment..."
+                      
+                      # Check resource group
+                      az group show --name rg-$(applicationName)-$(environment)-eus
+                      
+                      # List VMs
+                      az vm list --resource-group rg-$(applicationName)-$(environment)-eus --output table
+                      
+                      # Check VM status
+                      az vm list \
+                        --resource-group rg-$(applicationName)-$(environment)-eus \
+                        --show-details \
+                        --query "[].{Name:name, Status:powerState}" \
+                        --output table
+                      
+                      echo "Verification completed"

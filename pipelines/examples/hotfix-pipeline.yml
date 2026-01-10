@@ -1,0 +1,233 @@
+# ============================================================================
+# EXAMPLE: Hotfix Deployment Pipeline
+# ============================================================================
+# This pipeline is for emergency deployments that need to skip certain
+# stages and deploy directly to production
+# ============================================================================
+
+name: Hotfix-$(Date:yyyyMMdd)$(Rev:.r)
+
+# Manual trigger only - no automatic triggers for hotfixes
+trigger: none
+pr: none
+
+parameters:
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'prod'
+    values:
+      - dev
+      - test
+      - uat
+      - prod
+  
+  - name: applicationName
+    displayName: 'Application'
+    type: string
+    default: 'step'
+  
+  - name: justification
+    displayName: 'Hotfix Justification'
+    type: string
+    default: 'Emergency fix required'
+  
+  - name: changeTicketNumber
+    displayName: 'Change Ticket Number'
+    type: string
+    default: 'CHG-XXXXX'
+
+variables:
+  - name: azureLocation
+    value: 'eastus'
+  - name: vmImageName
+    value: 'ubuntu-latest'
+
+stages:
+  - stage: Hotfix_Validation
+    displayName: 'Hotfix Validation'
+    
+    jobs:
+      - job: Validate_Hotfix
+        displayName: 'Validate Hotfix Request'
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: none
+          
+          - task: PowerShell@2
+            displayName: 'Display Hotfix Information'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "==============================================="
+                Write-Host "⚠️  HOTFIX DEPLOYMENT REQUEST"
+                Write-Host "==============================================="
+                Write-Host "Target Environment: ${{ parameters.targetEnvironment }}"
+                Write-Host "Application: ${{ parameters.applicationName }}"
+                Write-Host "Justification: ${{ parameters.justification }}"
+                Write-Host "Change Ticket: ${{ parameters.changeTicketNumber }}"
+                Write-Host "Requested By: $(Build.RequestedFor)"
+                Write-Host "Build Number: $(Build.BuildNumber)"
+                Write-Host "==============================================="
+          
+          - task: ManualValidation@0
+            displayName: 'Approve Hotfix'
+            inputs:
+              notifyUsers: ''
+              instructions: |
+                ⚠️ HOTFIX DEPLOYMENT APPROVAL REQUIRED
+                
+                Environment: ${{ parameters.targetEnvironment }}
+                Application: ${{ parameters.applicationName }}
+                Justification: ${{ parameters.justification }}
+                Change Ticket: ${{ parameters.changeTicketNumber }}
+                
+                Please verify:
+                ☐ Change ticket approved
+                ☐ Stakeholders notified
+                ☐ Rollback plan ready
+                ☐ Post-deployment verification planned
+                
+                Only approve if this is a genuine emergency.
+              onTimeout: 'reject'
+  
+  - stage: Hotfix_Deploy
+    displayName: 'Deploy Hotfix'
+    dependsOn: Hotfix_Validation
+    
+    variables:
+      - group: 'bicep-${{ parameters.targetEnvironment }}'
+    
+    jobs:
+      # Quick validation only
+      - job: Quick_Validation
+        displayName: 'Quick Template Validation'
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - template: ../templates/validate-template.yml
+            parameters:
+              applicationName: '${{ parameters.applicationName }}'
+              environment: '${{ parameters.targetEnvironment }}'
+              azureLocation: $(azureLocation)
+              azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+              deploymentScope: 'subscription'
+      
+      # What-If (required even for hotfixes)
+      - job: What_If
+        displayName: 'What-If Analysis'
+        dependsOn: Quick_Validation
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - template: ../templates/whatif-template.yml
+            parameters:
+              applicationName: '${{ parameters.applicationName }}'
+              environment: '${{ parameters.targetEnvironment }}'
+              azureLocation: $(azureLocation)
+              azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+              deploymentScope: 'subscription'
+      
+      # Deploy
+      - deployment: Hotfix_Deployment
+        displayName: 'Execute Hotfix Deployment'
+        dependsOn:
+          - Quick_Validation
+          - What_If
+        pool:
+          vmImage: $(vmImageName)
+        environment: '${{ parameters.targetEnvironment }}'
+        
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                
+                - task: AzureCLI@2
+                  displayName: 'Tag Resources as Hotfix'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "Tagging deployment as HOTFIX..."
+                      # This will be used to tag resources after deployment
+                      echo "hotfix" > deployment-type.txt
+                      echo "${{ parameters.changeTicketNumber }}" > change-ticket.txt
+                
+                - template: ../templates/deploy-template.yml
+                  parameters:
+                    applicationName: '${{ parameters.applicationName }}'
+                    environment: '${{ parameters.targetEnvironment }}'
+                    azureLocation: $(azureLocation)
+                    azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+                    deploymentScope: 'subscription'
+                    runWhatIf: false  # Already done
+                    verifyDeployment: true
+                    deploymentName: 'hotfix-${{ parameters.applicationName }}-$(Build.BuildNumber)'
+                
+                - task: AzureCLI@2
+                  displayName: 'Apply Hotfix Tags'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      RG_NAME="rg-${{ parameters.applicationName }}-${{ parameters.targetEnvironment }}-$(echo $(azureLocation) | cut -c1-3)"
+                      
+                      az group update \
+                        --name "$RG_NAME" \
+                        --tags \
+                          DeploymentType="Hotfix" \
+                          ChangeTicket="${{ parameters.changeTicketNumber }}" \
+                          HotfixDate="$(date +%Y-%m-%d)" \
+                          DeployedBy="$(Build.RequestedFor)" \
+                          BuildNumber="$(Build.BuildNumber)"
+                      
+                      echo "✓ Hotfix tags applied"
+      
+      # Post-deployment verification
+      - job: Post_Hotfix_Verification
+        displayName: 'Post-Hotfix Verification'
+        dependsOn: Hotfix_Deployment
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Hotfix'
+            inputs:
+              azureSubscription: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "==============================================="
+                echo "Hotfix Deployment Verification"
+                echo "==============================================="
+                
+                RG_NAME="rg-${{ parameters.applicationName }}-${{ parameters.targetEnvironment }}-$(echo $(azureLocation) | cut -c1-3)"
+                
+                # Verify resource group
+                az group show --name "$RG_NAME" --query "{Name:name, Location:location, ProvisioningState:properties.provisioningState}" -o table
+                
+                # Check all resources
+                az resource list \
+                  --resource-group "$RG_NAME" \
+                  --query "[].{Name:name, Type:type, ProvisioningState:provisioningState}" \
+                  -o table
+                
+                echo ""
+                echo "✓ Hotfix verification completed"
+                echo ""
+                echo "⚠️  IMPORTANT: Perform manual smoke tests now!"

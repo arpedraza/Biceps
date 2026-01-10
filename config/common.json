@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "regionCode": {
+      "value": "eus"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "addressPrefix": {
+      "value": "10.0.0.0/16"
+    },
+    "imageReference": {
+      "value": {
+        "linux": {
+          "ubuntu2204": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-jammy",
+            "sku": "22_04-lts-gen2",
+            "version": "latest"
+          },
+          "ubuntu2004": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-focal",
+            "sku": "20_04-lts-gen2",
+            "version": "latest"
+          },
+          "rhel9": {
+            "publisher": "RedHat",
+            "offer": "RHEL",
+            "sku": "9-lvm-gen2",
+            "version": "latest"
+          }
+        },
+        "windows": {
+          "server2022": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2022-datacenter-azure-edition",
+            "version": "latest"
+          },
+          "server2019": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2019-datacenter-gensecond",
+            "version": "latest"
+          }
+        }
+      }
+    },
+    "vmSizes": {
+      "value": {
+        "small": "Standard_B2s",
+        "medium": "Standard_D2s_v3",
+        "large": "Standard_D4s_v3",
+        "xlarge": "Standard_D8s_v3"
+      }
+    },
+    "backupConfig": {
+      "value": {
+        "retentionDays": 30,
+        "backupTime": "02:00"
+      }
+    },
+    "monitoringConfig": {
+      "value": {
+        "logRetentionDays": 30,
+        "enableDiagnostics": true
+      }
+    }
+  }
+}

@@ -1,0 +1,212 @@
+# ============================================================================
+# EXAMPLE: Multi-Application Deployment Pipeline
+# ============================================================================
+# This pipeline deploys multiple applications in parallel or sequentially
+# ============================================================================
+
+name: MultiApp-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - applications/**
+      - modules/**
+
+parameters:
+  - name: applications
+    displayName: 'Applications to Deploy'
+    type: object
+    default:
+      - step
+      # Add more applications here as needed
+  
+  - name: deploymentStrategy
+    displayName: 'Deployment Strategy'
+    type: string
+    default: 'Sequential'
+    values:
+      - Sequential
+      - Parallel
+  
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - test
+      - uat
+      - prod
+
+variables:
+  - group: 'bicep-${{ parameters.targetEnvironment }}'
+  - name: azureLocation
+    value: 'eastus'
+  - name: vmImageName
+    value: 'ubuntu-latest'
+
+stages:
+  # Validate all applications
+  - stage: Validate_All
+    displayName: 'Validate All Applications'
+    
+    jobs:
+      - job: Validate_Templates
+        displayName: 'Validate All Templates'
+        pool:
+          vmImage: $(vmImageName)
+        
+        strategy:
+          matrix:
+            ${{ each app in parameters.applications }}:
+              ${{ app }}:
+                applicationName: ${{ app }}
+        
+        steps:
+          - checkout: self
+          
+          - template: ../templates/lint-template.yml
+            parameters:
+              applicationPath: 'applications/$(applicationName)'
+              modulesPath: 'modules'
+              azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+          
+          - template: ../templates/validate-template.yml
+            parameters:
+              applicationName: $(applicationName)
+              environment: '${{ parameters.targetEnvironment }}'
+              azureLocation: $(azureLocation)
+              azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+              deploymentScope: 'subscription'
+  
+  # Sequential deployment
+  - ${{ if eq(parameters.deploymentStrategy, 'Sequential') }}:
+      - ${{ each app in parameters.applications }}:
+          - stage: Deploy_${{ replace(app, '-', '_') }}
+            displayName: 'Deploy ${{ app }}'
+            dependsOn: Validate_All
+            condition: succeeded()
+            
+            jobs:
+              - deployment: Deploy_${{ app }}
+                displayName: 'Deploy ${{ app }} Application'
+                pool:
+                  vmImage: $(vmImageName)
+                environment: '${{ parameters.targetEnvironment }}'
+                
+                strategy:
+                  runOnce:
+                    deploy:
+                      steps:
+                        - checkout: self
+                        
+                        - template: ../templates/deploy-template.yml
+                          parameters:
+                            applicationName: '${{ app }}'
+                            environment: '${{ parameters.targetEnvironment }}'
+                            azureLocation: $(azureLocation)
+                            azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+                            deploymentScope: 'subscription'
+                            runWhatIf: true
+                            verifyDeployment: true
+  
+  # Parallel deployment
+  - ${{ if eq(parameters.deploymentStrategy, 'Parallel') }}:
+      - stage: Deploy_All_Parallel
+        displayName: 'Deploy All Applications (Parallel)'
+        dependsOn: Validate_All
+        
+        jobs:
+          - ${{ each app in parameters.applications }}:
+              - deployment: Deploy_${{ replace(app, '-', '_') }}
+                displayName: 'Deploy ${{ app }}'
+                pool:
+                  vmImage: $(vmImageName)
+                environment: '${{ parameters.targetEnvironment }}'
+                
+                strategy:
+                  runOnce:
+                    deploy:
+                      steps:
+                        - checkout: self
+                        
+                        - template: ../templates/deploy-template.yml
+                          parameters:
+                            applicationName: '${{ app }}'
+                            environment: '${{ parameters.targetEnvironment }}'
+                            azureLocation: $(azureLocation)
+                            azureServiceConnection: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+                            deploymentScope: 'subscription'
+                            runWhatIf: true
+                            verifyDeployment: true
+  
+  # Final verification
+  - stage: Final_Verification
+    displayName: 'Final Verification'
+    dependsOn:
+      - ${{ if eq(parameters.deploymentStrategy, 'Sequential') }}:
+          - ${{ each app in parameters.applications }}:
+              - Deploy_${{ replace(app, '-', '_') }}
+      - ${{ if eq(parameters.deploymentStrategy, 'Parallel') }}:
+          - Deploy_All_Parallel
+    
+    jobs:
+      - job: Verify_All_Applications
+        displayName: 'Verify All Applications'
+        pool:
+          vmImage: $(vmImageName)
+        
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify All Deployments'
+            inputs:
+              azureSubscription: '$(azureServiceConnection-${{ parameters.targetEnvironment }})'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "==============================================="
+                echo "Multi-Application Deployment Verification"
+                echo "==============================================="
+                echo "Environment: ${{ parameters.targetEnvironment }}"
+                echo "Deployment Strategy: ${{ parameters.deploymentStrategy }}"
+                echo ""
+                
+                SUCCESS_COUNT=0
+                FAIL_COUNT=0
+                
+                ${{ each app in parameters.applications }}:
+                  RG_NAME="rg-${{ app }}-${{ parameters.targetEnvironment }}-$(echo $(azureLocation) | cut -c1-3)"
+                  
+                  echo "Checking application: ${{ app }}"
+                  echo "Resource Group: $RG_NAME"
+                  
+                  if az group show --name "$RG_NAME" &> /dev/null; then
+                    RESOURCE_COUNT=$(az resource list --resource-group "$RG_NAME" --query "length([])" -o tsv)
+                    echo "  ✓ ${{ app }}: $RESOURCE_COUNT resources deployed"
+                    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                  else
+                    echo "  ✗ ${{ app }}: Resource group not found"
+                    FAIL_COUNT=$((FAIL_COUNT + 1))
+                  fi
+                  
+                  echo ""
+                ${{ end }}
+                
+                echo "==============================================="
+                echo "Verification Summary"
+                echo "==============================================="
+                echo "Successful: $SUCCESS_COUNT"
+                echo "Failed: $FAIL_COUNT"
+                echo "==============================================="
+                
+                if [ $FAIL_COUNT -gt 0 ]; then
+                  echo "✗ Some applications failed to deploy"
+                  exit 1
+                else
+                  echo "✓ All applications deployed successfully"
+                fi

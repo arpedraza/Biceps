@@ -1,0 +1,146 @@
+# ============================================================================
+# Pipeline Template: Bicep Linting
+# ============================================================================
+# This template validates Bicep syntax and runs linting checks
+# ============================================================================
+
+parameters:
+  - name: applicationPath
+    type: string
+    displayName: 'Path to application bicep files'
+    default: 'applications/step'
+  
+  - name: modulesPath
+    type: string
+    displayName: 'Path to modules'
+    default: 'modules'
+  
+  - name: azureServiceConnection
+    type: string
+    displayName: 'Azure Service Connection'
+  
+  - name: workingDirectory
+    type: string
+    displayName: 'Working Directory'
+    default: '$(System.DefaultWorkingDirectory)'
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Install Bicep CLI'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        echo "Checking Bicep version..."
+        az bicep version
+        
+        echo "Upgrading Bicep to latest version..."
+        az bicep upgrade
+        
+        echo "Current Bicep version:"
+        az bicep version
+  
+  - task: AzureCLI@2
+    displayName: 'Lint All Bicep Modules'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        echo "==============================================="
+        echo "Linting Bicep Modules"
+        echo "==============================================="
+        
+        # Find all .bicep files
+        find ${{ parameters.modulesPath }} -name "*.bicep" -type f | while read -r bicep_file; do
+          echo ""
+          echo "Linting: $bicep_file"
+          echo "-----------------------------------------------"
+          az bicep build --file "$bicep_file" --stdout > /dev/null
+          
+          if [ $? -eq 0 ]; then
+            echo "✓ $bicep_file - PASSED"
+          else
+            echo "✗ $bicep_file - FAILED"
+            exit 1
+          fi
+        done
+        
+        echo ""
+        echo "✓ All module files passed linting"
+  
+  - task: AzureCLI@2
+    displayName: 'Lint Application Bicep Files'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        echo "==============================================="
+        echo "Linting Application Bicep Files"
+        echo "==============================================="
+        
+        # Find all .bicep files in application path
+        find ${{ parameters.applicationPath }} -name "*.bicep" -type f | while read -r bicep_file; do
+          echo ""
+          echo "Linting: $bicep_file"
+          echo "-----------------------------------------------"
+          az bicep build --file "$bicep_file" --stdout > /dev/null
+          
+          if [ $? -eq 0 ]; then
+            echo "✓ $bicep_file - PASSED"
+          else
+            echo "✗ $bicep_file - FAILED"
+            exit 1
+          fi
+        done
+        
+        echo ""
+        echo "✓ All application files passed linting"
+  
+  - task: AzureCLI@2
+    displayName: 'Run Bicep Linter with Rules'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        echo "==============================================="
+        echo "Running Bicep Linter with Custom Rules"
+        echo "==============================================="
+        
+        # Check if bicepconfig.json exists
+        if [ -f "bicepconfig.json" ]; then
+          echo "Using bicepconfig.json for linting rules"
+        else
+          echo "No bicepconfig.json found, using default rules"
+        fi
+        
+        # Lint main application file
+        main_file="${{ parameters.applicationPath }}/main.bicep"
+        if [ -f "$main_file" ]; then
+          echo "Linting main application file: $main_file"
+          az bicep build --file "$main_file" --stdout > /dev/null
+          
+          if [ $? -eq 0 ]; then
+            echo "✓ Main application file passed linting"
+          else
+            echo "✗ Main application file failed linting"
+            exit 1
+          fi
+        else
+          echo "Warning: Main application file not found at $main_file"
+          exit 1
+        fi
+  
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish Lint Results'
+    condition: always()
+    inputs:
+      targetPath: '$(System.DefaultWorkingDirectory)'
+      artifact: 'lint-results'
+      publishLocation: 'pipeline'
