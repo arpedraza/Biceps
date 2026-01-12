@@ -1,0 +1,14 @@
+[
+  {
+    "vmName": "epbtwe-stn01",
+    "osType": "windows",
+    "vmSize": "Standard_B2ms",
+    "role": "Backend Server",
+    "subnetResourceId": "/subscriptions/c2ae3152-6777-45b2-8c04-f4492ad08be4/resourceGroups/rg-ep-network-test-01/providers/Microsoft.Network/virtualNetworks/vnet-ep-epb-test-westeu-01/subnets/snet-ep-epb-applications-test-westeu-01",
+    "domainJoined": false,
+    "tags": {
+      "Role": "frontend",
+      "UpdateManagement": "TestUnattended01",
+    }
+  }
+]

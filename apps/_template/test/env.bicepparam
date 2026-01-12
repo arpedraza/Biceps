@@ -1,4 +1,4 @@
-using '../..//..//infra/rg-deploy.bicep'
+using '../../../infra/rg-deploy.bicep'
 
 // TODO: update values for test
 // Target deployment settings (used by pipelines)

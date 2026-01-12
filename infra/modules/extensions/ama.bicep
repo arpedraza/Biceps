@@ -32,7 +32,8 @@ var extType = isWindows ? 'AzureMonitorWindowsAgent' : 'AzureMonitorLinuxAgent'
 var extPublisher = 'Microsoft.Azure.Monitor'
 
 resource ama 'Microsoft.Compute/virtualMachines/extensions@2023-07-01' = {
-  name: '${vm.name}/${extName}'
+  parent: vm
+  name: 'AzureMonitorWindowsAgent' // or your extension name
   properties: {
     publisher: extPublisher
     type: extType
