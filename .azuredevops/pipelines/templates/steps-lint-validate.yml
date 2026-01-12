@@ -1,9 +1,0 @@
-steps:
-- task: PowerShell@2
-  displayName: Lint & validate (Bicep + inventory)
-  inputs:
-    pwsh: true
-    targetType: filePath
-    filePath: .azuredevops/scripts/validate-repo.ps1
-    arguments: >
-      -AppsRoot "apps"

@@ -1,0 +1,8 @@
+{
+  "windows": {
+    "server2022": "/subscriptions/9c9c8305-0566-47cb-9b82-5dcf99bed903/resourceGroups/rg-mrg-shared-01/providers/Microsoft.Compute/galleries/gal.shared/images/win2022/versions/latest"
+  },
+  "linux": {
+    "rhel9": "/subscriptions/9c9c8305-0566-47cb-9b82-5dcf99bed903/resourceGroups/rg-mrg-shared-01/providers/Microsoft.Compute/galleries/gal.shared/images/rhel9/versions/latest"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "centralKeyVaultResourceId": "/subscriptions/9c9c8305-0566-47cb-9b82-5dcf99bed903/resourceGroups/rg-mrg-shared-01/providers/Microsoft.KeyVault/vaults/kv-mrg-shared-infra",
+  "logAnalyticsWorkspaceResourceId": "/subscriptions/9c9c8305-0566-47cb-9b82-5dcf99bed903/resourceGroups/rg-mrg-monitoring-prod-01/providers/Microsoft.OperationalInsights/workspaces/law-mrg-prod"
+}

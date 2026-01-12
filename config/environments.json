@@ -1,0 +1,14 @@
+{
+  "test": {
+    "bootDiagStorageAccountResourceId": "/subscriptions/c2ae3152-6777-45b2-8c04-f4492ad08be4/resourceGroups/rg-ep-monitoring-test-01/providers/Microsoft.Storage/storageAccounts/stbootdiagtst"
+  },
+  "prod": {
+    "bootDiagStorageAccountResourceId": "/subscriptions/c71cfef2-700e-47e5-b810-e34898fd2249/resourceGroups/rg-ep-monitoring-prod-01/providers/Microsoft.Storage/storageAccounts/stbootdiagprd"
+  },
+  "dev": {
+    "bootDiagStorageAccountResourceId": "__REPLACE_ME__"
+  },
+  "uat": {
+    "bootDiagStorageAccountResourceId": "__REPLACE_ME__"
+  }
+}
