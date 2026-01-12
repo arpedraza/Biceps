@@ -1,0 +1,13 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Bicep build outputs (if generated)
+**/*.jsonc
+**/*.bicep.json
+
+# Temp
+*.tmp
+*.log

@@ -1,0 +1,11 @@
+steps:
+- task: PowerShell@2
+  displayName: Deploy summary
+  inputs:
+    pwsh: true
+    targetType: filePath
+    filePath: .azuredevops/scripts/post-summary.ps1
+    arguments: >
+      -ScopesJson "$(scopesJson)"
+      -RemovedVmsJson "$(removedVmsJson)"
+      -DeletionsDetected "$(deletionsDetected)"

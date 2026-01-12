@@ -1,0 +1,16 @@
+parameters:
+  baseRef: "origin/main"
+  headRef: "HEAD"
+
+steps:
+- task: PowerShell@2
+  name: detect
+  displayName: Detect changed app/env scopes
+  inputs:
+    pwsh: true
+    targetType: filePath
+    filePath: .azuredevops/scripts/detect-scopes.ps1
+    arguments: >
+      -BaseRef "${{ parameters.baseRef }}"
+      -HeadRef "${{ parameters.headRef }}"
+      -AppsRoot "apps"

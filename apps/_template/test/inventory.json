@@ -1,0 +1,13 @@
+[
+  {
+    "vmName": "epbpwe-stp01",
+    "osType": "windows",
+    "vmSize": "Standard_D4s_v5",
+    "role": "frontend",
+    "subnetResourceId": null,
+    "domainJoined": true,
+    "tags": {
+      "Role": "frontend"
+    }
+  }
+]

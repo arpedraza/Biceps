@@ -1,0 +1,11 @@
+# Global pipeline variables (example placeholders)
+variables:
+  # Central Key Vault (RBAC) details
+  centralKeyVaultName: "kv-central-placeholder"
+  centralKeyVaultResourceId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-kv/providers/Microsoft.KeyVault/vaults/kv-central-placeholder"
+
+  # Global Log Analytics Workspace (single LAW for all VMs)
+  logAnalyticsWorkspaceResourceId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-law/providers/Microsoft.OperationalInsights/workspaces/law-placeholder"
+
+  # Default region (if not specified per env)
+  defaultLocation: "westeurope"

@@ -1,0 +1,17 @@
+# Deploy for a specific app/env (with Deployment Stacks)
+parameters:
+  app: ""
+  env: ""
+  subscriptionId: ""
+  resourceGroupName: ""
+  location: ""
+  envParamFile: ""
+  inventoryFile: ""
+
+steps:
+- bash: |
+    set -euo pipefail
+    echo "TODO: ensure RG exists (subscription deploy)"
+    echo "TODO: KV sync (secrets + keys) should happen earlier in pipeline"
+    echo "TODO: deploy/update stack for app/env"
+  displayName: Deploy (TODO)

@@ -1,0 +1,128 @@
+trigger:
+  branches:
+    include:
+    - main
+
+pool:
+  vmImage: windows-latest
+
+variables:
+- template: variables/global.yml
+
+stages:
+- stage: Preflight
+  jobs:
+  - job: Validate
+    steps:
+    - checkout: self
+      fetchDepth: 0
+
+    - task: AzureCLI@2
+      displayName: (deprecated) Azure CLI login step
+      enabled: false
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "disabled"
+
+    - task: AzurePowerShell@5
+      displayName: Azure PowerShell (login via service connection)
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: InlineScript
+        Inline: |
+          $ctx = Get-AzContext
+          if (-not $ctx) { throw "No Az context. Service connection auth failed." }
+          Write-Host "Logged in as: $($ctx.Account.Id)"
+          Write-Host "Tenant: $($ctx.Tenant.Id)"
+        azurePowerShellVersion: LatestVersion
+
+    - template: templates/steps-lint-validate.yml
+    - template: templates/steps-detect-scopes.yml
+      parameters:
+        baseRef: "HEAD~1"
+        headRef: "HEAD"
+
+    - task: AzurePowerShell@5
+      displayName: Key Vault sync (ensure secrets + keys; export secure maps)
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: FilePath
+        ScriptPath: .azuredevops/scripts/kv-sync.ps1
+        ScriptArguments: >
+          -KeyVaultName "$(centralKeyVaultName)"
+          -AppsRoot "apps"
+        azurePowerShellVersion: LatestVersion
+
+- stage: WhatIf
+  dependsOn: Preflight
+  jobs:
+  - job: WhatIf
+    steps:
+    - checkout: self
+      fetchDepth: 0
+
+    - task: AzurePowerShell@5
+      displayName: Azure what-if (subscription + deployment stack)
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: FilePath
+        ScriptPath: .azuredevops/scripts/run-whatif.ps1
+        ScriptArguments: >
+          -ScopesJson "$(scopesJson)"
+          -LocalAdminPasswordsJson "$(localAdminPasswordsJson)"
+          -VmKeyUrlsJson "$(vmKeyUrlsJson)"
+        azurePowerShellVersion: LatestVersion
+
+- stage: Approval
+  dependsOn: WhatIf
+  condition: and(succeeded(), eq(variables['deletionsDetected'], 'true'))
+  jobs:
+  - job: ManualApproval
+    pool: server
+    steps:
+    - task: ManualValidation@0
+      inputs:
+        instructions: |
+          Deletions were detected in what-if. Review the summary and approve to continue.
+        onTimeout: reject
+      timeoutInMinutes: 1440
+
+- stage: Deploy
+  dependsOn:
+  - WhatIf
+  - Approval
+  condition: succeeded()
+  jobs:
+  - job: Deploy
+    steps:
+    - checkout: self
+      fetchDepth: 0
+
+    - task: AzurePowerShell@5
+      displayName: Deploy (subscription + deployment stack)
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: FilePath
+        ScriptPath: .azuredevops/scripts/deploy-scopes.ps1
+        ScriptArguments: >
+          -ScopesJson "$(scopesJson)"
+          -LocalAdminPasswordsJson "$(localAdminPasswordsJson)"
+          -VmKeyUrlsJson "$(vmKeyUrlsJson)"
+        azurePowerShellVersion: LatestVersion
+
+    - task: AzurePowerShell@5
+      displayName: Key Vault cleanup for removed VMs (soft delete)
+      condition: and(succeeded(), ne(variables['removedVmsJson'], '{}'))
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: FilePath
+        ScriptPath: .azuredevops/scripts/kv-cleanup.ps1
+        ScriptArguments: >
+          -KeyVaultName "$(centralKeyVaultName)"
+          -RemovedVmsJson "$(removedVmsJson)"
+        azurePowerShellVersion: LatestVersion
+
+    - template: templates/steps-summarize.yml

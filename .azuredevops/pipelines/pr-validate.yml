@@ -1,0 +1,43 @@
+trigger: none
+pr:
+  branches:
+    include:
+    - main
+
+pool:
+  vmImage: windows-latest
+
+stages:
+- stage: Validate
+  jobs:
+  - job: Validate
+    steps:
+    - checkout: self
+      fetchDepth: 0
+
+    - task: AzurePowerShell@5
+      displayName: Azure PowerShell (login via service connection)
+      inputs:
+        azureSubscription: "ADO-SERVICE-CONNECTION-NAME"
+        ScriptType: InlineScript
+        Inline: |
+          $ctx = Get-AzContext
+          if (-not $ctx) { throw "No Az context. Service connection auth failed." }
+          Write-Host "Logged in as: $($ctx.Account.Id)"
+        azurePowerShellVersion: LatestVersion
+
+    - template: templates/steps-lint-validate.yml
+    - template: templates/steps-detect-scopes.yml
+      parameters:
+        baseRef: "origin/main"
+        headRef: "HEAD"
+
+    - task: PowerShell@2
+      displayName: Inventory plan summary (PR)
+      inputs:
+        pwsh: true
+        targetType: filePath
+        filePath: .azuredevops/scripts/inventory-plan.ps1
+        arguments: >
+          -ScopesJson "$(scopesJson)"
+          -RemovedVmsJson "$(removedVmsJson)"
